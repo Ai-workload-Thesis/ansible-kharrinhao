@@ -1,0 +1,20 @@
+---
+# Kubernetes Configuration - Using LATEST available versions
+# No version pinning to avoid repository conflicts
+
+# Network Configuration  
+pod_network_cidr: "10.244.0.0/16"
+service_subnet: "10.96.0.0/12"
+kubernetes_api_server_advertise_address: "192.168.70.211"
+kubernetes_api_server_bind_port: 16443
+
+# System Configuration
+disable_swap: true
+configure_firewall: false
+
+# Container Runtime
+container_runtime: containerd
+cgroup_driver: systemd
+
+# CNI Plugin (will be configured in Phase 1)
+cni_plugin: cilium

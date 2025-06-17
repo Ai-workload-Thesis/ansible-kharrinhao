@@ -1,0 +1,56 @@
+---
+- name: "Verify network connectivity to API server"
+  wait_for:
+    port: "{{ kubernetes_api_server_bind_port }}"
+    host: "{{ kubernetes_api_server_advertise_address }}"
+    timeout: 60
+
+- name: "Check cluster network status"
+  command: kubectl get nodes -o wide
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: nodes_status
+  retries: 3
+  delay: 5
+
+- name: "Display current nodes status"
+  debug:
+    msg: "{{ nodes_status.stdout_lines }}"
+
+- name: "Show cluster info"
+  command: kubectl cluster-info
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: cluster_info
+
+- name: "Display cluster info"
+  debug:
+    msg: "{{ cluster_info.stdout_lines }}"
+
+- name: "Verify kube-system pods"
+  command: kubectl get pods -n kube-system
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: kube_system_pods
+
+- name: "Display kube-system pods status"
+  debug:
+    msg: "{{ kube_system_pods.stdout_lines }}"
+
+- name: "Create network readiness marker"
+  file:
+    path: /tmp/k8s-network-ready
+    state: touch
+    mode: '0644'
+
+- name: "Phase 0 networking completion"
+  debug:
+    msg: |
+      Phase 0 networking setup completed successfully!
+      
+      Next Steps:
+      1. Your Kubernetes cluster is now ready for Phase 1 (CNI installation)
+      2. The cluster API is accessible at: {{ kubernetes_api_server_advertise_address }}:{{ kubernetes_api_server_bind_port }}
+      3. Kubeconfig has been saved to files/kubeconfig
+      
+      Note: Nodes will show "NotReady" status until CNI (Cilium) is installed in Phase 1.

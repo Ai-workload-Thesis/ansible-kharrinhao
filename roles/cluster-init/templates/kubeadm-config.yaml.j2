@@ -1,0 +1,39 @@
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: {{ kubernetes_api_server_advertise_address }}
+  bindPort: {{ kubernetes_api_server_bind_port }}
+nodeRegistration:
+  criSocket: unix:///var/run/containerd/containerd.sock
+  kubeletExtraArgs:
+    cgroup-driver: systemd
+---
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: ClusterConfiguration
+kubernetesVersion: v{{ kube_version.stdout }}
+clusterName: {{ k8s_cluster_name }}
+controlPlaneEndpoint: {{ kubernetes_api_server_advertise_address }}:{{ kubernetes_api_server_bind_port }}
+apiServer:
+  advertiseAddress: {{ kubernetes_api_server_advertise_address }}
+  bindPort: {{ kubernetes_api_server_bind_port }}
+  certSANs:
+    - {{ kubernetes_api_server_advertise_address }}
+    - {{ inventory_hostname }}
+    - localhost
+    - 127.0.0.1
+networking:
+  serviceSubnet: {{ service_subnet }}
+  podSubnet: {{ pod_network_cidr }}
+controllerManager: {}
+scheduler: {}
+etcd:
+  local:
+    dataDir: /var/lib/etcd
+---
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: KubeletConfiguration
+cgroupDriver: systemd
+---
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+mode: ipvs

@@ -1,0 +1,39 @@
+---
+- name: "Add Kubernetes signing key"
+  shell: |
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.32/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+    chmod 644 /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+- name: "Add Kubernetes repository" 
+  shell: |
+    echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.32/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
+
+- name: "Install Kubernetes packages - LATEST versions"
+  apt:
+    name:
+      - kubelet
+      - kubeadm  
+      - kubectl
+    state: present
+    update_cache: yes
+
+- name: "Hold packages to prevent auto-updates"
+  shell: |
+    apt-mark hold kubelet kubeadm kubectl
+
+- name: "Enable kubelet"
+  systemd:
+    name: kubelet
+    enabled: yes
+
+- name: "Show installed versions"
+  shell: |
+    echo "=== Installed Versions ==="
+    kubelet --version
+    kubeadm version --output=short
+    kubectl version --client --output=yaml
+  register: versions
+
+- name: "Display versions"
+  debug:
+    msg: "{{ versions.stdout_lines }}"

@@ -1,0 +1,31 @@
+---
+- name: "Phase 0 - Bootstrap Kubernetes Infrastructure"
+  hosts: k8s_cluster
+  become: yes
+  gather_facts: yes
+  serial: 1
+  
+  pre_tasks:
+    - name: "Verify connectivity to target hosts"
+      ping:
+      
+    - name: "Display target host information"
+      debug:
+        msg: "Bootstrapping Kubernetes on {{ inventory_hostname }} ({{ ansible_host }})"
+
+  roles:
+    - role: prerequisites
+      tags: ['phase0', 'prerequisites']
+    - role: containerd
+      tags: ['phase0', 'containerd']
+    - role: kubernetes-install
+      tags: ['phase0', 'k8s-install']
+    - role: cluster-init
+      tags: ['phase0', 'cluster-init']
+    - role: networking
+      tags: ['phase0', 'networking']
+
+  post_tasks:
+    - name: "Phase 0 completion verification"
+      debug:
+        msg: "Phase 0 Bootstrap completed successfully on {{ inventory_hostname }}"

@@ -1,0 +1,26 @@
+---
+- name: "Install containerd from default repositories"
+  apt:
+    name: containerd
+    state: present
+    update_cache: yes
+
+- name: "Create containerd directory"
+  file:
+    path: /etc/containerd
+    state: directory
+
+- name: "Generate default containerd config"
+  shell: |
+    containerd config default > /etc/containerd/config.toml
+
+- name: "Configure containerd for systemd"
+  shell: |
+    sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+
+- name: "Restart containerd"
+  systemd:
+    name: containerd
+    state: restarted
+    enabled: yes
+    daemon_reload: yes
