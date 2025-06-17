@@ -1,0 +1,5 @@
+---
+# Flannel CNI Configuration
+flannel_version: "latest"
+flannel_manifest_url: "https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml"
+flannel_namespace: "kube-flannel"

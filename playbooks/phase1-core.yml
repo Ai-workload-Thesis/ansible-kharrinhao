@@ -1,0 +1,37 @@
+---
+- name: "Phase 1 - Core Infrastructure"
+  hosts: k8s_cluster
+  become: yes
+  gather_facts: yes
+  
+  pre_tasks:
+    - name: "Verify Phase 0 completion"
+      stat:
+        path: /tmp/k8s-network-ready
+      register: phase0_complete
+      failed_when: not phase0_complete.stat.exists
+      
+    - name: "Display Phase 1 start"
+      debug:
+        msg: "Starting Phase 1: Core Infrastructure with Flannel CNI on {{ inventory_hostname }}"
+
+  roles:
+    - role: flannel
+      tags: ['phase1', 'flannel', 'cni']
+    - role: cert-manager
+      tags: ['phase1', 'cert-manager', 'certificates']
+    - role: ingress-nginx
+      tags: ['phase1', 'ingress-nginx', 'ingress']
+    - role: phase1-validation
+      tags: ['phase1', 'validation']
+
+  post_tasks:
+    - name: "Create Phase 1 completion marker"
+      file:
+        path: /tmp/k8s-phase1-complete
+        state: touch
+        mode: '0644'
+        
+    - name: "Phase 1 completion"
+      debug:
+        msg: "Phase 1: Core Infrastructure with Flannel completed successfully on {{ inventory_hostname }}"

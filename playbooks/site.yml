@@ -2,6 +2,9 @@
 - import_playbook: phase0-bootstrap.yml
   tags: ['phase0', 'bootstrap']
 
+- import_playbook: phase1-core.yml
+  tags: ['phase1', 'core']
+
 # Future phases will be added here
-# - import_playbook: phase1-core.yml
-#   tags: ['phase1', 'core']
+# - import_playbook: phase2-platform.yml
+#   tags: ['phase2', 'platform']

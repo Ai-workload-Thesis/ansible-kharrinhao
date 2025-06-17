@@ -1,0 +1,137 @@
+---
+- name: "Wait for all deployments to be ready"
+  pause:
+    seconds: 30
+
+- name: "Check node status (should be Ready)"
+  command: kubectl get nodes -o wide
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: final_nodes
+
+- name: "Verify all system pods are running"
+  command: kubectl get pods -n kube-system
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: system_pods
+
+- name: "Verify Flannel pods"
+  command: kubectl get pods -n {{ flannel_namespace }}
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: flannel_status
+  ignore_errors: yes
+
+- name: "Verify cert-manager pods"
+  command: kubectl get pods -n {{ cert_manager_namespace }}
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: cert_manager_status
+
+- name: "Verify ingress-nginx pods"
+  command: kubectl get pods -n {{ ingress_nginx_namespace }}
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: ingress_status
+
+- name: "Check ClusterIssuers status"
+  command: kubectl get clusterissuers
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: issuers_status
+
+- name: "Check certificates status"
+  command: kubectl get certificates -A
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: certificates_status
+
+- name: "Get Ingress NGINX service details"
+  command: kubectl get svc ingress-nginx-controller -n {{ ingress_nginx_namespace }} -o wide
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: ingress_svc_details
+
+- name: "Get node IP for port forwarding"
+  command: kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}'
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: node_ip
+
+- name: "Create port-forward helper script"
+  template:
+    src: port-forward-helper.sh.j2
+    dest: /tmp/port-forward-helper.sh
+    mode: '0755'
+
+- name: "Create /etc/hosts entries template"
+  template:
+    src: hosts-entries.txt.j2
+    dest: /tmp/hosts-entries.txt
+    mode: '0644'
+
+- name: "Display Phase 1 validation results"
+  debug:
+    msg:
+      - "=== PHASE 1 VALIDATION COMPLETE ==="
+      - ""
+      - "✅ Node Status:"
+      - "{{ final_nodes.stdout_lines }}"
+      - ""
+      - "✅ System Pods:"
+      - "{{ system_pods.stdout_lines }}"
+      - ""
+      - "✅ Flannel CNI Status:"
+      - "{{ flannel_status.stdout_lines if flannel_status.rc == 0 else ['Flannel namespace not found - checking system pods'] }}"
+      - ""
+      - "✅ cert-manager Status:"
+      - "{{ cert_manager_status.stdout_lines }}"
+      - ""
+      - "✅ Ingress NGINX Status:"
+      - "{{ ingress_status.stdout_lines }}"
+      - ""
+      - "✅ Certificate Issuers:"
+      - "{{ issuers_status.stdout_lines }}"
+      - ""
+      - "✅ Certificates:"
+      - "{{ certificates_status.stdout_lines }}"
+      - ""
+      - "🌐 Ingress Service Details:"
+      - "{{ ingress_svc_details.stdout_lines }}"
+
+- name: "Fetch port-forward helper script"
+  fetch:
+    src: /tmp/port-forward-helper.sh
+    dest: "{{ playbook_dir }}/../files/port-forward-helper.sh"
+    flat: yes
+
+- name: "Fetch hosts entries template"
+  fetch:
+    src: /tmp/hosts-entries.txt
+    dest: "{{ playbook_dir }}/../files/hosts-entries.txt"
+    flat: yes
+
+- name: "Display access instructions"
+  debug:
+    msg:
+      - ""
+      - "🎉 PHASE 1 COMPLETE - CORE INFRASTRUCTURE READY!"
+      - ""
+      - "🕸️  CNI: Flannel (Simple and Reliable)"
+      - "🔒 Certificates: cert-manager with self-signed CA"
+      - "🌐 Ingress: NGINX with NodePort"
+      - ""
+      - "📡 Access Methods:"
+      - "1. NodePort: http://{{ node_ip.stdout }}:30080 (HTTP) / https://{{ node_ip.stdout }}:30443 (HTTPS)"
+      - "2. Port Forward: kubectl port-forward svc/ingress-nginx-controller {{ port_forward_http }}:80 {{ port_forward_https }}:443 -n {{ ingress_nginx_namespace }}"
+      - ""
+      - "📁 Helper Files Created:"
+      - "- files/port-forward-helper.sh (port-forward script)"
+      - "- files/hosts-entries.txt (/etc/hosts entries)"
+      - ""
+      - "🔗 Domain Setup:"
+      - "Add to your /etc/hosts:"
+      - "127.0.0.1 {{ ingress_domains | join(' ') }}"
+      - ""
+      - "🎯 Ready for Phase 2: Platform Services!"
+      - "(Keycloak, Longhorn, External DNS, Kubernetes Dashboard)"

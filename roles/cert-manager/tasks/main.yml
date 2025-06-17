@@ -1,0 +1,125 @@
+---
+- name: "Add Jetstack Helm repository"
+  kubernetes.core.helm_repository:
+    name: jetstack
+    repo_url: https://charts.jetstack.io
+
+- name: "Create cert-manager namespace"
+  kubernetes.core.k8s:
+    name: "{{ cert_manager_namespace }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+
+- name: "Install cert-manager via Helm"
+  kubernetes.core.helm:
+    name: cert-manager
+    chart_ref: jetstack/cert-manager
+    chart_version: "{{ cert_manager_version }}"
+    release_namespace: "{{ cert_manager_namespace }}"
+    create_namespace: false
+    kubeconfig: /etc/kubernetes/admin.conf
+    values:
+      # Install CRDs
+      crds:
+        enabled: true
+      
+      # Resource configuration
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+      
+      # Webhook configuration
+      webhook:
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+      
+      # CA Injector configuration  
+      cainjector:
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+
+- name: "Wait for cert-manager pods to be ready"
+  command: kubectl wait --for=condition=ready pod -l app.kubernetes.io/instance=cert-manager -n {{ cert_manager_namespace }} --timeout=300s
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  retries: 3
+  delay: 10
+
+- name: "Create self-signed ClusterIssuer"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: cert-manager.io/v1
+      kind: ClusterIssuer
+      metadata:
+        name: selfsigned-issuer
+      spec:
+        selfSigned: {}
+
+- name: "Create CA certificate for internal services"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: cert-manager.io/v1
+      kind: Certificate
+      metadata:
+        name: ca-certificate
+        namespace: "{{ cert_manager_namespace }}"
+      spec:
+        isCA: true
+        commonName: "{{ base_domain }} CA"
+        subject:
+          organizationalUnits:
+            - "{{ base_domain }}"
+        secretName: ca-certificate-secret
+        issuerRef:
+          name: selfsigned-issuer
+          kind: ClusterIssuer
+          group: cert-manager.io
+
+- name: "Wait for CA certificate to be ready"
+  command: kubectl wait --for=condition=ready certificate ca-certificate -n {{ cert_manager_namespace }} --timeout=120s
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+
+- name: "Create CA ClusterIssuer"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: cert-manager.io/v1
+      kind: ClusterIssuer
+      metadata:
+        name: ca-issuer
+      spec:
+        ca:
+          secretName: ca-certificate-secret
+
+- name: "Verify cert-manager installation"
+  command: kubectl get clusterissuers
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: cluster_issuers
+
+- name: "Display ClusterIssuers"
+  debug:
+    msg: "{{ cluster_issuers.stdout_lines }}"
+
+- name: "Verify cert-manager pods"
+  command: kubectl get pods -n {{ cert_manager_namespace }}
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: cert_manager_pods
+
+- name: "Display cert-manager pods"
+  debug:
+    msg: "{{ cert_manager_pods.stdout_lines }}"

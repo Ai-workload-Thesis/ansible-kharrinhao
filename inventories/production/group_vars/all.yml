@@ -1,20 +1,38 @@
 ---
-# Kubernetes Configuration - Using LATEST available versions
-# No version pinning to avoid repository conflicts
-
-# Network Configuration  
+# Kubernetes Configuration - LATEST versions
 pod_network_cidr: "10.244.0.0/16"
 service_subnet: "10.96.0.0/12"
 kubernetes_api_server_advertise_address: "192.168.70.211"
 kubernetes_api_server_bind_port: 16443
-
-# System Configuration
+k8s_cluster_name: "kharrinhao"
 disable_swap: true
-configure_firewall: false
-
-# Container Runtime
 container_runtime: containerd
 cgroup_driver: systemd
 
-# CNI Plugin (will be configured in Phase 1)
-cni_plugin: cilium
+# Phase 1: Core Infrastructure Configuration
+# Flannel CNI Configuration (Simple and Reliable)
+cni_plugin: flannel
+flannel_version: "latest"
+flannel_manifest_url: "https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml"
+flannel_namespace: "kube-flannel"
+
+# cert-manager Configuration  
+cert_manager_version: "v1.16.2"
+cert_manager_namespace: "cert-manager"
+
+# Ingress NGINX Configuration
+ingress_nginx_version: "4.12.0"
+ingress_nginx_namespace: "ingress-nginx"
+
+# Domain Configuration (for local development)
+base_domain: "k8s.local"
+ingress_domains:
+  - login.k8s.local
+  - auth.k8s.local
+  - dashboard.k8s.local
+  - grafana.k8s.local
+  - argocd.k8s.local
+
+# Port forwarding (for SSH tunneling)
+port_forward_http: 8080
+port_forward_https: 8443

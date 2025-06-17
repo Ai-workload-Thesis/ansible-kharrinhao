@@ -1,0 +1,20 @@
+# /etc/hosts entries for Kubernetes local development
+# Add these entries to your /etc/hosts file for clean domain access
+
+# Method 1: For port-forwarding (recommended)
+127.0.0.1 {{ ingress_domains | join(' ') }}
+
+# Method 2: For direct NodePort access (alternative)
+# {{ kubernetes_api_server_advertise_address }} {{ ingress_domains | join(' ') }}
+
+# Usage Instructions:
+# 1. Copy the appropriate line above to your /etc/hosts
+# 2. Use port-forward script: ./files/port-forward-helper.sh
+# 3. Access services at: https://login.{{ base_domain }}, https://auth.{{ base_domain }}, etc.
+
+# Port Forward Commands:
+# kubectl port-forward svc/ingress-nginx-controller {{ port_forward_http }}:80 {{ port_forward_https }}:443 -n {{ ingress_nginx_namespace }}
+
+# NodePort Access (alternative):
+# HTTP:  http://{{ kubernetes_api_server_advertise_address }}:30080
+# HTTPS: https://{{ kubernetes_api_server_advertise_address }}:30443

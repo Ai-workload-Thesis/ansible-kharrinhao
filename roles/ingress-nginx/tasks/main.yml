@@ -1,0 +1,140 @@
+---
+- name: "Add Ingress NGINX Helm repository"
+  kubernetes.core.helm_repository:
+    name: ingress-nginx
+    repo_url: https://kubernetes.github.io/ingress-nginx
+
+- name: "Create ingress-nginx namespace"
+  kubernetes.core.k8s:
+    name: "{{ ingress_nginx_namespace }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+
+- name: "Install Ingress NGINX via Helm"
+  kubernetes.core.helm:
+    name: ingress-nginx
+    chart_ref: ingress-nginx/ingress-nginx
+    chart_version: "{{ ingress_nginx_version }}"
+    release_namespace: "{{ ingress_nginx_namespace }}"
+    create_namespace: false
+    kubeconfig: /etc/kubernetes/admin.conf
+    values:
+      controller:
+        # Service configuration for bare metal
+        service:
+          type: NodePort
+          nodePorts:
+            http: 30080
+            https: 30443
+        
+        # Enable SSL passthrough for cert-manager
+        extraArgs:
+          enable-ssl-passthrough: true
+        
+        # Resource limits for single node
+        resources:
+          requests:
+            cpu: 100m
+            memory: 90Mi
+          limits:
+            cpu: 100m
+            memory: 90Mi
+        
+        # Admission webhooks
+        admissionWebhooks:
+          enabled: true
+          failurePolicy: Fail
+          port: 8443
+          certificate: "/usr/local/certificates/cert"
+          key: "/usr/local/certificates/key"
+          namespaceSelector: {}
+          objectSelector: {}
+          annotations: {}
+        
+        # Metrics
+        metrics:
+          enabled: false
+        
+        # Configuration for single node cluster
+        hostNetwork: false
+        hostPort:
+          enabled: false
+        
+        # Default backend
+        defaultBackend:
+          enabled: false
+
+- name: "Wait for Ingress NGINX controller to be ready"
+  command: kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=controller -n {{ ingress_nginx_namespace }} --timeout=300s
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  retries: 3
+  delay: 10
+
+- name: "Get Ingress NGINX controller service"
+  command: kubectl get svc -n {{ ingress_nginx_namespace }}
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: ingress_service
+
+- name: "Display Ingress NGINX service"
+  debug:
+    msg: "{{ ingress_service.stdout_lines }}"
+
+- name: "Create test ingress resource"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: test-ingress
+        namespace: default
+        annotations:
+          cert-manager.io/cluster-issuer: "ca-issuer"
+          nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      spec:
+        ingressClassName: nginx
+        tls:
+          - hosts:
+              - test.k8s.local
+            secretName: test-tls-secret
+        rules:
+          - host: test.k8s.local
+            http:
+              paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: kubernetes
+                      port:
+                        number: 443
+
+- name: "Wait for test certificate to be issued"
+  command: kubectl wait --for=condition=ready certificate -l app=test-certificate --timeout=120s || true
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+
+- name: "Verify Ingress NGINX installation"
+  command: kubectl get pods -n {{ ingress_nginx_namespace }}
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: ingress_pods
+
+- name: "Display Ingress NGINX pods"
+  debug:
+    msg: "{{ ingress_pods.stdout_lines }}"
+
+- name: "Get ingress resources"
+  command: kubectl get ingress -A
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: all_ingress
+
+- name: "Display all ingress resources"
+  debug:
+    msg: "{{ all_ingress.stdout_lines }}"

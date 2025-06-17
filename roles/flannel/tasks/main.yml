@@ -1,0 +1,83 @@
+---
+- name: "Wait for kube-apiserver to be ready"
+  wait_for:
+    port: "{{ kubernetes_api_server_bind_port }}"
+    host: "{{ kubernetes_api_server_advertise_address }}"
+    timeout: 120
+
+- name: "Check if Flannel is already installed"
+  command: kubectl get daemonset kube-flannel-ds -n kube-flannel --ignore-not-found
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: flannel_check
+  changed_when: false
+
+- name: "Download Flannel manifest"
+  get_url:
+    url: "{{ flannel_manifest_url }}"
+    dest: /tmp/kube-flannel.yml
+    mode: '0644'
+  when: flannel_check.stdout == ""
+
+- name: "Install Flannel CNI"
+  command: kubectl apply -f /tmp/kube-flannel.yml
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  when: flannel_check.stdout == ""
+  register: flannel_install
+
+- name: "Display Flannel installation result"
+  debug:
+    msg: "{{ flannel_install.stdout_lines }}"
+  when: flannel_check.stdout == "" and flannel_install is defined
+
+- name: "Wait for Flannel pods to be ready"
+  command: kubectl wait --for=condition=ready pod -l app=flannel -n kube-flannel --timeout=300s
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  retries: 3
+  delay: 10
+
+- name: "Wait for CoreDNS pods to be ready (after CNI)"
+  command: kubectl wait --for=condition=ready pod -l k8s-app=kube-dns -n kube-system --timeout=300s
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  retries: 3
+  delay: 10
+
+- name: "Verify node status (should be Ready now)"
+  command: kubectl get nodes
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: nodes_after_cni
+
+- name: "Display node status after CNI installation"
+  debug:
+    msg: "{{ nodes_after_cni.stdout_lines }}"
+
+- name: "Verify CNI networking"
+  command: kubectl get pods -n kube-flannel -o wide
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: flannel_pods
+  ignore_errors: yes
+
+- name: "Display Flannel pods"
+  debug:
+    msg: "{{ flannel_pods.stdout_lines }}"
+  when: flannel_pods.rc == 0
+
+- name: "Verify all system pods"
+  command: kubectl get pods -n kube-system -o wide
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: kube_system_pods_cni
+
+- name: "Display kube-system pods with IPs"
+  debug:
+    msg: "{{ kube_system_pods_cni.stdout_lines }}"
+
+- name: "Clean up Flannel manifest"
+  file:
+    path: /tmp/kube-flannel.yml
+    state: absent
