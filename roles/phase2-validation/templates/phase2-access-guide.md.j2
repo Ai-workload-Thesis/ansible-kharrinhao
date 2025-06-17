@@ -1,0 +1,167 @@
+# Phase 2 Platform Services - Access Guide
+
+## 🎉 Congratulations! Your Enterprise Kubernetes Platform is Ready
+
+### 🔐 **Keycloak Authentication Server**
+
+**Access URL:** https://auth.{{ base_domain }}:8443
+
+**Admin Credentials:**
+- Username: `{{ keycloak_admin_user }}`
+- Password: `{{ vault_keycloak_admin_password | default('admin123!') }}`
+
+**Setup Steps:**
+1. Login to Keycloak admin console
+2. Navigate to the `{{ keycloak_realm }}` realm
+3. Create users and assign to groups:
+   - `{{ rbac_admin_group }}` - Full cluster access
+   - `{{ rbac_user_group }}` - Namespace-limited access  
+   - `{{ rbac_viewer_group }}` - Read-only access
+
+### 📊 **Kubernetes Dashboard**
+
+**Access URL:** https://dashboard.{{ base_domain }}:8443
+
+**Authentication Methods:**
+1. **Token Login** (Recommended):
+   ```bash
+   # Get admin token
+   kubectl get secret dashboard-admin-token -n {{ k8s_dashboard_namespace }} -o jsonpath='{.data.token}' | base64 -d
+   ```
+
+2. **Skip Login** (Development only):
+   - Click "Skip" on login page for full admin access
+
+**Features:**
+- Full cluster administration
+- Pod logs and terminal access
+- Resource management
+- YAML editor
+
+### 💾 **Longhorn Storage Management**
+
+**Access URL:** https://longhorn.{{ base_domain }}:8443
+
+**Features:**
+- Volume management
+- Backup configuration
+- Node and disk management
+- Performance monitoring
+
+**Default Settings:**
+- StorageClass: `{{ longhorn_storage_class }}`
+- Replica Count: {{ longhorn_replica_count }} (single node)
+- Data Path: `/var/lib/longhorn/`
+
+### 🌐 **Access Methods**
+
+#### **Method 1: Port Forward (Recommended)**
+```bash
+# Start port forwarding
+kubectl port-forward svc/ingress-nginx-controller {{ port_forward_http }}:80 {{ port_forward_https }}:443 -n {{ ingress_nginx_namespace }}
+
+# Access services at:
+# https://auth.{{ base_domain }}:{{ port_forward_https }}
+# https://dashboard.{{ base_domain }}:{{ port_forward_https }}
+# https://longhorn.{{ base_domain }}:{{ port_forward_https }}
+```
+
+#### **Method 2: NodePort Direct**
+```bash
+# Access directly via NodePort:
+# https://{{ kubernetes_api_server_advertise_address }}:30443
+```
+
+#### **Method 3: /etc/hosts + SSH Tunnel**
+Add to your `/etc/hosts`:
+```
+127.0.0.1 {{ ingress_domains | join(' ') }} longhorn.{{ base_domain }}
+```
+
+### 🔑 **RBAC Configuration**
+
+#### **Admin Users ({{ rbac_admin_group }})**
+- Full cluster access (`cluster-admin` role)
+- Can access Kubernetes Dashboard
+- Can manage all resources
+- Can create/delete namespaces
+
+#### **Regular Users ({{ rbac_user_group }})**
+- Namespace-limited access
+- Can deploy applications
+- Can manage pods, services, deployments
+- Cannot access cluster-wide resources
+
+#### **Viewers ({{ rbac_viewer_group }})**
+- Read-only access
+- Can view resources
+- Cannot modify anything
+
+### 🛠️ **Next Steps**
+
+1. **Configure Keycloak:**
+   - Create user accounts
+   - Assign users to appropriate groups
+   - Configure OAuth2 clients if needed
+
+2. **Test Authentication:**
+   - Login to Dashboard with token
+   - Verify RBAC permissions
+   - Test different user roles
+
+3. **Storage Testing:**
+   - Create a PVC using Longhorn
+   - Deploy a test application
+   - Verify volume mounting
+
+4. **Backup Configuration:**
+   - Configure Longhorn backups
+   - Set up snapshot schedules
+   - Test restore procedures
+
+### 🚨 **Troubleshooting**
+
+#### **Certificate Issues:**
+```bash
+# Check certificate status
+kubectl get certificates -A
+
+# Recreate certificate if needed
+kubectl delete certificate <cert-name> -n <namespace>
+```
+
+#### **Pod Issues:**
+```bash
+# Check pod status
+kubectl get pods -n <namespace>
+kubectl describe pod <pod-name> -n <namespace>
+kubectl logs <pod-name> -n <namespace>
+```
+
+#### **Storage Issues:**
+```bash
+# Check Longhorn status
+kubectl get pods -n {{ longhorn_namespace }}
+kubectl get storageclass
+```
+
+### 📞 **Support**
+
+**Useful Commands:**
+```bash
+# Get all resources in namespace
+kubectl get all -n <namespace>
+
+# Port forward to specific service
+kubectl port-forward svc/<service-name> <local-port>:<service-port> -n <namespace>
+
+# Get ingress details
+kubectl describe ingress <ingress-name> -n <namespace>
+
+# Check events
+kubectl get events -n <namespace> --sort-by='.lastTimestamp'
+```
+
+---
+
+**🎯 Your enterprise Kubernetes platform is now ready for production workloads!**

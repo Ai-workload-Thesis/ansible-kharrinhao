@@ -1,0 +1,4 @@
+---
+vault_keycloak_admin_password: "admin123!"
+vault_keycloak_db_password: "postgres123!"
+vault_oauth2_client_secret: "kubernetes-dashboard-secret"

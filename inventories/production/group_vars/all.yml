@@ -36,3 +36,44 @@ ingress_domains:
 # Port forwarding (for SSH tunneling)
 port_forward_http: 8080
 port_forward_https: 8443
+
+# Phase 2: Platform Services Configuration
+
+# External DNS Configuration (for automatic DNS management)
+external_dns_version: "1.15.0"
+external_dns_namespace: "external-dns"
+external_dns_provider: "cloudflare"  # Can be changed based on your DNS provider
+
+# Longhorn Storage Configuration
+longhorn_version: "1.7.2"
+longhorn_namespace: "longhorn-system"
+longhorn_storage_class: "longhorn"
+longhorn_replica_count: 1  # Single node setup
+
+# Keycloak Configuration
+keycloak_version: "22.0.0"
+keycloak_namespace: "keycloak"
+keycloak_realm: "kubernetes"
+keycloak_admin_user: "admin"
+keycloak_database: "postgresql"
+keycloak_domain: "auth.k8s.local"
+
+# Kubernetes Dashboard Configuration
+k8s_dashboard_version: "7.5.0"
+k8s_dashboard_namespace: "kubernetes-dashboard"
+k8s_dashboard_domain: "dashboard.k8s.local"
+
+# RBAC Configuration
+rbac_admin_group: "k8s:admins"
+rbac_user_group: "k8s:users"
+rbac_viewer_group: "k8s:viewers"
+
+# OAuth2 Integration
+oauth2_client_id: "kubernetes"
+oauth2_client_secret: "kubernetes-dashboard-secret"
+oauth2_issuer_url: "https://auth.k8s.local/realms/kubernetes"
+
+# Storage Configuration
+default_storage_class: "longhorn"
+backup_storage_enabled: true
+snapshot_enabled: true

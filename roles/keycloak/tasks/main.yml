@@ -1,0 +1,284 @@
+---
+# Simple Keycloak deployment using raw Kubernetes manifests
+# This avoids Helm complexity and timeout issues
+
+- name: "Clean up existing Keycloak resources"
+  shell: |
+    kubectl delete namespace keycloak --force --grace-period=0 || true
+    kubectl patch namespace keycloak -p '{"metadata":{"finalizers":[]}}' --type=merge || true
+    helm uninstall keycloak -n keycloak || true
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  ignore_errors: yes
+
+- name: "Wait for cleanup"
+  pause:
+    seconds: 30
+
+- name: "Create Keycloak namespace"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: keycloak
+
+- name: "Create Keycloak ConfigMap"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: keycloak-config
+        namespace: keycloak
+      data:
+        KC_DB: "postgres"
+        KC_DB_URL: "jdbc:postgresql://postgres:5432/keycloak"
+        KC_DB_USERNAME: "keycloak"
+        KC_HOSTNAME: "auth.k8s.local"
+        KC_HOSTNAME_STRICT: "false"
+        KC_HTTP_ENABLED: "true"
+        KC_PROXY: "edge"
+
+- name: "Create PostgreSQL Secret"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: postgres-secret
+        namespace: keycloak
+      type: Opaque
+      stringData:
+        POSTGRES_DB: "keycloak"
+        POSTGRES_USER: "keycloak"
+        POSTGRES_PASSWORD: "{{ vault_keycloak_db_password | default('postgres123!') }}"
+
+- name: "Create Keycloak Secret"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: keycloak-secret
+        namespace: keycloak
+      type: Opaque
+      stringData:
+        KC_DB_PASSWORD: "{{ vault_keycloak_db_password | default('postgres123!') }}"
+        KEYCLOAK_ADMIN: "admin"
+        KEYCLOAK_ADMIN_PASSWORD: "{{ vault_keycloak_admin_password | default('admin123!') }}"
+
+- name: "Deploy PostgreSQL"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: postgres
+        namespace: keycloak
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: postgres
+        template:
+          metadata:
+            labels:
+              app: postgres
+          spec:
+            containers:
+            - name: postgres
+              image: postgres:15-alpine
+              envFrom:
+              - secretRef:
+                  name: postgres-secret
+              ports:
+              - containerPort: 5432
+              volumeMounts:
+              - name: postgres-storage
+                mountPath: /var/lib/postgresql/data
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: 200m
+                  memory: 512Mi
+              readinessProbe:
+                exec:
+                  command:
+                  - /bin/sh
+                  - -c
+                  - pg_isready -U keycloak
+                initialDelaySeconds: 10
+                periodSeconds: 5
+            volumes:
+            - name: postgres-storage
+              emptyDir: {}
+
+- name: "Create PostgreSQL Service"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: postgres
+        namespace: keycloak
+      spec:
+        selector:
+          app: postgres
+        ports:
+        - port: 5432
+
+- name: "Wait for PostgreSQL to be ready"
+  command: kubectl wait --for=condition=ready pod -l app=postgres -n keycloak --timeout=180s
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+
+- name: "Deploy Keycloak"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: keycloak
+        namespace: keycloak
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: keycloak
+        template:
+          metadata:
+            labels:
+              app: keycloak
+          spec:
+            containers:
+            - name: keycloak
+              image: quay.io/keycloak/keycloak:25.0.6
+              args:
+              - start
+              - --http-enabled=true
+              - --http-port=8080
+              - --hostname-strict=false
+              - --proxy=edge
+              - --db=postgres
+              envFrom:
+              - configMapRef:
+                  name: keycloak-config
+              - secretRef:
+                  name: keycloak-secret
+              env:
+              - name: JAVA_OPTS_APPEND
+                value: "-Xms256m -Xmx768m -XX:MetaspaceSize=96M -XX:MaxMetaspaceSize=256m"
+              ports:
+              - containerPort: 8080
+                name: http
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 512Mi
+                limits:
+                  cpu: 1000m
+                  memory: 1Gi
+              readinessProbe:
+                httpGet:
+                  path: /realms/master
+                  port: 8080
+                initialDelaySeconds: 60
+                periodSeconds: 10
+                timeoutSeconds: 10
+                failureThreshold: 15
+              livenessProbe:
+                httpGet:
+                  path: /realms/master
+                  port: 8080
+                initialDelaySeconds: 120
+                periodSeconds: 30
+                timeoutSeconds: 10
+                failureThreshold: 5
+
+- name: "Create Keycloak Service"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: keycloak
+        namespace: keycloak
+      spec:
+        selector:
+          app: keycloak
+        ports:
+        - port: 8080
+          name: http
+
+- name: "Wait for Keycloak deployment to be ready"
+  command: kubectl wait --for=condition=available deployment/keycloak -n keycloak --timeout=600s
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+
+- name: "Create Keycloak Ingress"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: keycloak-ingress
+        namespace: keycloak
+        annotations:
+          cert-manager.io/cluster-issuer: "ca-issuer"
+          nginx.ingress.kubernetes.io/ssl-redirect: "true"
+          nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+          nginx.ingress.kubernetes.io/proxy-buffer-size: "8k"
+      spec:
+        ingressClassName: nginx
+        tls:
+        - hosts:
+          - auth.k8s.local
+          secretName: keycloak-tls
+        rules:
+        - host: auth.k8s.local
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: keycloak
+                  port:
+                    number: 8080
+
+- name: "Verify installation"
+  command: kubectl get pods -n keycloak -o wide
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: keycloak_pods
+
+- name: "Display Keycloak status"
+  debug:
+    msg: 
+    - "=== Keycloak Installation Complete ==="
+    - "{{ keycloak_pods.stdout_lines }}"
+    - ""
+    - "🔗 Access: https://auth.k8s.local:8443 (after port-forward)"
+    - "👤 Admin: admin"
+    - "🔑 Password: {{ vault_keycloak_admin_password | default('admin123!') }}"

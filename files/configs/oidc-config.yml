@@ -1,0 +1,14 @@
+# OIDC Configuration for Kubernetes API Server
+# This will be applied to update the API server configuration
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oidc-config
+  namespace: kube-system
+data:
+  oidc-issuer-url: "https://auth.k8s.local/realms/kubernetes"
+  oidc-client-id: "kubernetes"
+  oidc-username-claim: "preferred_username"
+  oidc-groups-claim: "groups"
+  oidc-ca-file: "/etc/ssl/certs/ca-certificates.crt"

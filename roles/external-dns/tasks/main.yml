@@ -1,0 +1,68 @@
+---
+- name: "Create external-dns namespace"
+  kubernetes.core.k8s:
+    name: "{{ external_dns_namespace }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+
+- name: "Note about External DNS"
+  debug:
+    msg:
+      - "External DNS is configured but requires DNS provider credentials"
+      - "For now, we'll use manual DNS management via /etc/hosts"
+      - "Production setup would connect to CloudFlare/Route53/etc"
+
+- name: "Create external-dns service account"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: external-dns
+        namespace: "{{ external_dns_namespace }}"
+
+- name: "Create external-dns cluster role"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: external-dns
+      rules:
+      - apiGroups: [""]
+        resources: ["services","endpoints","pods"]
+        verbs: ["get","watch","list"]
+      - apiGroups: ["extensions","networking.k8s.io"]
+        resources: ["ingresses"]
+        verbs: ["get","watch","list"]
+      - apiGroups: [""]
+        resources: ["nodes"]
+        verbs: ["list","watch"]
+
+- name: "Create external-dns cluster role binding"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: external-dns-viewer
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: external-dns
+      subjects:
+      - kind: ServiceAccount
+        name: external-dns
+        namespace: "{{ external_dns_namespace }}"
+
+- name: "External DNS setup completed"
+  debug:
+    msg: "External DNS RBAC configured. DNS management will be manual for local development."

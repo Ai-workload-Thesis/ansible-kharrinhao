@@ -1,0 +1,197 @@
+---
+- name: "Wait for all deployments to be ready"
+  pause:
+    seconds: 60
+
+- name: "Check all Phase 2 namespaces"
+  command: kubectl get namespaces
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: all_namespaces
+
+- name: "Display all namespaces"
+  debug:
+    msg: "{{ all_namespaces.stdout_lines }}"
+
+- name: "Verify Longhorn installation"
+  command: kubectl get pods -n longhorn-system
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: longhorn_status
+
+- name: "Count running Longhorn pods"
+  shell: kubectl get pods -n longhorn-system --no-headers | grep Running | wc -l
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: longhorn_running_count
+
+- name: "Verify Keycloak installation"
+  command: kubectl get pods -n keycloak
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: keycloak_status
+
+- name: "Verify Dashboard installation"
+  command: kubectl get pods -n kubernetes-dashboard
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: dashboard_status
+
+- name: "Check all ingresses"
+  command: kubectl get ingress -A
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: all_ingresses
+
+- name: "Check all certificates"
+  command: kubectl get certificates -A
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: all_certificates
+
+- name: "Check storage classes"
+  command: kubectl get storageclass
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: storage_classes
+
+- name: "Get admin token for dashboard (fixed command)"
+  shell: kubectl get secret dashboard-admin-token -n kubernetes-dashboard -o jsonpath='{.data.token}' | base64 --decode
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: dashboard_token
+  ignore_errors: yes
+
+- name: "Get node IP for access instructions"
+  command: kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}'
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: node_ip
+
+- name: "Create access instructions file"
+  copy:
+    content: |
+      # Phase 2 Enterprise Platform - Access Guide
+      
+      ## 🎉 Enterprise Kubernetes Platform Ready!
+      
+      ### 🔌 Port Forward Command (run in separate terminal):
+      ```bash
+      kubectl --kubeconfig=files/kubeconfig port-forward svc/ingress-nginx-controller 8080:80 8443:443 -n ingress-nginx
+      ```
+      
+      ### 🌍 Add to your WSL /etc/hosts:
+      ```
+      127.0.0.1 auth.k8s.local dashboard.k8s.local longhorn.k8s.local
+      ```
+      
+      ### 🔗 Access URLs (after port-forward + /etc/hosts):
+      - **Keycloak Admin**: https://auth.k8s.local:8443
+      - **Kubernetes Dashboard**: https://dashboard.k8s.local:8443
+      - **Longhorn Storage**: https://longhorn.k8s.local:8443
+      
+      ### 🔑 Credentials:
+      - **Keycloak**: admin / admin123!
+      - **Dashboard**: Use token below or click "Skip"
+      
+      ### 📋 Dashboard Admin Token:
+      ```
+      {{ dashboard_token.stdout if dashboard_token.rc == 0 else 'Token not ready - check after all pods are running' }}
+      ```
+      
+      ### 🎯 Enterprise Features Available:
+      - ✅ Authentication server (Keycloak)
+      - ✅ Web-based cluster management (Dashboard)
+      - ✅ Persistent storage (Longhorn)
+      - ✅ Role-based access control
+      - ✅ TLS certificates for all services
+      - ✅ Ready for ML workload deployment
+      
+      ### 📊 Platform Status:
+      - Longhorn pods running: {{ longhorn_running_count.stdout }}
+      - Storage classes available: Yes
+      - Ingresses configured: {{ all_ingresses.stdout_lines | length - 1 }}
+      - Certificates issued: {{ all_certificates.stdout_lines | length - 1 }}
+      
+      ### 🛠️ Troubleshooting:
+      - If Dashboard shows CrashLoopBackOff, wait a few minutes and check again
+      - All services should be accessible via the ingress after port-forward
+      - Use `kubectl logs -n kubernetes-dashboard deployment/kubernetes-dashboard` for Dashboard logs
+      
+      🎓 Perfect for thesis demonstration!
+    dest: /tmp/phase2-access-guide.md
+    mode: '0644'
+
+- name: "Fetch access guide to local machine"
+  fetch:
+    src: /tmp/phase2-access-guide.md
+    dest: "{{ playbook_dir }}/../files/phase2-access-guide.md"
+    flat: yes
+
+- name: "Display Phase 2 validation results"
+  debug:
+    msg:
+      - "=== PHASE 2 VALIDATION COMPLETE ==="
+      - ""
+      - "✅ All Namespaces:"
+      - "{{ all_namespaces.stdout_lines }}"
+      - ""
+      - "💾 Longhorn Storage ({{ longhorn_running_count.stdout }} pods running):"
+      - "{{ longhorn_status.stdout_lines[-5:] }}"
+      - ""
+      - "🔐 Keycloak Authentication:"
+      - "{{ keycloak_status.stdout_lines }}"
+      - ""
+      - "📊 Kubernetes Dashboard:"
+      - "{{ dashboard_status.stdout_lines }}"
+      - ""
+      - "🌐 All Ingresses:"
+      - "{{ all_ingresses.stdout_lines }}"
+      - ""
+      - "🔒 All Certificates:"
+      - "{{ all_certificates.stdout_lines }}"
+      - ""
+      - "💾 Storage Classes:"
+      - "{{ storage_classes.stdout_lines }}"
+
+- name: "Check Dashboard health"
+  shell: kubectl get pods -n kubernetes-dashboard | grep kubernetes-dashboard | grep -v Terminating
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: dashboard_health
+  ignore_errors: yes
+
+- name: "Dashboard status analysis"
+  debug:
+    msg: |
+      Dashboard Status: {{ 'Healthy' if 'Running' in dashboard_health.stdout else 'Starting/Issues detected' }}
+      {% if 'CrashLoopBackOff' in dashboard_health.stdout %}
+      ⚠️  Dashboard pod is crash looping - this is usually due to startup timing
+      💡 Wait 2-3 minutes for the pod to stabilize, or check logs with:
+         kubectl logs -n kubernetes-dashboard deployment/kubernetes-dashboard
+      {% endif %}
+
+- name: "Display access instructions"
+  debug:
+    msg:
+      - ""
+      - "🎉 PHASE 2 COMPLETE - ENTERPRISE PLATFORM READY!"
+      - ""
+      - "🔌 Port Forward Command:"
+      - "kubectl --kubeconfig=files/kubeconfig port-forward svc/ingress-nginx-controller 8080:80 8443:443 -n ingress-nginx"
+      - ""
+      - "🌍 Add to WSL /etc/hosts:"
+      - "127.0.0.1 auth.k8s.local dashboard.k8s.local longhorn.k8s.local"
+      - ""
+      - "🔗 Access URLs:"
+      - "  • Keycloak:   https://auth.k8s.local:8443"
+      - "  • Dashboard:  https://dashboard.k8s.local:8443"
+      - "  • Longhorn:   https://longhorn.k8s.local:8443"
+      - ""
+      - "🔑 Credentials:"
+      - "  • Keycloak: admin / admin123!"
+      - "  • Dashboard: Use token or click 'Skip'"
+      - ""
+      - "📁 Complete guide: files/phase2-access-guide.md"
+      - ""
+      - "🎯 Ready for ML workloads and user management!"

@@ -1,0 +1,402 @@
+---
+# Fixed Kubernetes Dashboard with proper RBAC permissions
+# Based on official manifests and the ItwonderLab guide
+
+- name: "Clean up existing Dashboard resources"
+  shell: |
+    kubectl delete namespace kubernetes-dashboard --force --grace-period=0 || true
+    kubectl patch namespace kubernetes-dashboard -p '{"metadata":{"finalizers":[]}}' --type=merge || true
+    helm uninstall kubernetes-dashboard -n kubernetes-dashboard || true
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  ignore_errors: yes
+
+- name: "Wait for cleanup"
+  pause:
+    seconds: 30
+
+- name: "Create kubernetes-dashboard namespace"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: kubernetes-dashboard
+
+- name: "Create Dashboard ServiceAccount"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: kubernetes-dashboard
+        namespace: kubernetes-dashboard
+
+- name: "Create Dashboard Service"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: kubernetes-dashboard
+        namespace: kubernetes-dashboard
+        labels:
+          k8s-app: kubernetes-dashboard
+      spec:
+        ports:
+        - port: 443
+          targetPort: 8443
+          protocol: TCP
+        selector:
+          k8s-app: kubernetes-dashboard
+
+- name: "Create Dashboard Secret for certs"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: kubernetes-dashboard-certs
+        namespace: kubernetes-dashboard
+        labels:
+          k8s-app: kubernetes-dashboard
+      type: Opaque
+
+- name: "Create Dashboard Secret for CSRF"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: kubernetes-dashboard-csrf
+        namespace: kubernetes-dashboard
+        labels:
+          k8s-app: kubernetes-dashboard
+      type: Opaque
+      data:
+        csrf: ""
+
+- name: "Create Dashboard Secret for key holder"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: kubernetes-dashboard-key-holder
+        namespace: kubernetes-dashboard
+        labels:
+          k8s-app: kubernetes-dashboard
+      type: Opaque
+
+- name: "Create Dashboard ConfigMap"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: kubernetes-dashboard-settings
+        namespace: kubernetes-dashboard
+        labels:
+          k8s-app: kubernetes-dashboard
+
+- name: "Create Dashboard Role with proper secret access"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: kubernetes-dashboard
+        namespace: kubernetes-dashboard
+        labels:
+          k8s-app: kubernetes-dashboard
+      rules:
+      # Allow getting, updating, and deleting Dashboard secrets
+      - apiGroups: [""]
+        resources: ["secrets"]
+        resourceNames: 
+        - "kubernetes-dashboard-key-holder"
+        - "kubernetes-dashboard-certs" 
+        - "kubernetes-dashboard-csrf"
+        verbs: ["get", "update", "delete"]
+      # Allow getting and updating settings
+      - apiGroups: [""]
+        resources: ["configmaps"]
+        resourceNames: ["kubernetes-dashboard-settings"]
+        verbs: ["get", "update"]
+      # Allow proxy access to services
+      - apiGroups: [""]
+        resources: ["services"]
+        resourceNames: ["heapster", "dashboard-metrics-scraper"]
+        verbs: ["proxy"]
+      - apiGroups: [""]
+        resources: ["services/proxy"]
+        resourceNames: 
+        - "heapster" 
+        - "http:heapster:"
+        - "https:heapster:"
+        - "dashboard-metrics-scraper"
+        - "http:dashboard-metrics-scraper"
+        verbs: ["get"]
+
+- name: "Create Dashboard ClusterRole"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: kubernetes-dashboard
+        labels:
+          k8s-app: kubernetes-dashboard
+      rules:
+      # Allow metrics access
+      - apiGroups: ["metrics.k8s.io"]
+        resources: ["pods", "nodes"]
+        verbs: ["get", "list"]
+
+- name: "Create Dashboard RoleBinding"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: kubernetes-dashboard
+        namespace: kubernetes-dashboard
+        labels:
+          k8s-app: kubernetes-dashboard
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: kubernetes-dashboard
+      subjects:
+      - kind: ServiceAccount
+        name: kubernetes-dashboard
+        namespace: kubernetes-dashboard
+
+- name: "Create Dashboard ClusterRoleBinding"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: kubernetes-dashboard
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: kubernetes-dashboard
+      subjects:
+      - kind: ServiceAccount
+        name: kubernetes-dashboard
+        namespace: kubernetes-dashboard
+
+- name: "Create Dashboard Deployment"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: kubernetes-dashboard
+        namespace: kubernetes-dashboard
+        labels:
+          k8s-app: kubernetes-dashboard
+      spec:
+        replicas: 1
+        revisionHistoryLimit: 10
+        selector:
+          matchLabels:
+            k8s-app: kubernetes-dashboard
+        template:
+          metadata:
+            labels:
+              k8s-app: kubernetes-dashboard
+          spec:
+            securityContext:
+              seccompProfile:
+                type: RuntimeDefault
+            containers:
+            - name: kubernetes-dashboard
+              image: kubernetesui/dashboard:v2.7.0
+              imagePullPolicy: Always
+              ports:
+              - containerPort: 8443
+                protocol: TCP
+              args:
+              - --auto-generate-certificates
+              - --namespace=kubernetes-dashboard
+              - --enable-skip-login
+              - --enable-insecure-login
+              - --system-banner="Enterprise Kubernetes Platform"
+              volumeMounts:
+              - name: kubernetes-dashboard-certs
+                mountPath: /certs
+              - mountPath: /tmp
+                name: tmp-volume
+              livenessProbe:
+                httpGet:
+                  scheme: HTTPS
+                  path: /
+                  port: 8443
+                initialDelaySeconds: 30
+                timeoutSeconds: 30
+              readinessProbe:
+                httpGet:
+                  scheme: HTTPS
+                  path: /
+                  port: 8443
+                initialDelaySeconds: 10
+                timeoutSeconds: 30
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsUser: 1001
+                runAsGroup: 2001
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 200Mi
+                limits:
+                  cpu: 200m
+                  memory: 400Mi
+            volumes:
+            - name: kubernetes-dashboard-certs
+              secret:
+                secretName: kubernetes-dashboard-certs
+            - name: tmp-volume
+              emptyDir: {}
+            serviceAccountName: kubernetes-dashboard
+            nodeSelector:
+              "kubernetes.io/os": linux
+            tolerations:
+            - key: node-role.kubernetes.io/master
+              effect: NoSchedule
+
+- name: "Wait for Dashboard deployment to be ready"
+  command: kubectl wait --for=condition=available deployment/kubernetes-dashboard -n kubernetes-dashboard --timeout=300s
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+
+- name: "Create Dashboard admin service account"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: dashboard-admin
+        namespace: kubernetes-dashboard
+
+- name: "Create Dashboard admin cluster role binding"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: dashboard-admin
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: cluster-admin
+      subjects:
+      - kind: ServiceAccount
+        name: dashboard-admin
+        namespace: kubernetes-dashboard
+
+- name: "Create admin token secret"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: dashboard-admin-token
+        namespace: kubernetes-dashboard
+        annotations:
+          kubernetes.io/service-account.name: dashboard-admin
+      type: kubernetes.io/service-account-token
+
+- name: "Create Dashboard Ingress"
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: kubernetes-dashboard-ingress
+        namespace: kubernetes-dashboard
+        annotations:
+          cert-manager.io/cluster-issuer: "ca-issuer"
+          nginx.ingress.kubernetes.io/ssl-redirect: "true"
+          nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+          nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+      spec:
+        ingressClassName: nginx
+        tls:
+        - hosts:
+          - dashboard.k8s.local
+          secretName: dashboard-tls
+        rules:
+        - host: dashboard.k8s.local
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: kubernetes-dashboard
+                  port:
+                    number: 443
+
+- name: "Wait for token to be generated"
+  pause:
+    seconds: 15
+
+- name: "Get admin token for dashboard access (fixed command)"
+  shell: kubectl get secret dashboard-admin-token -n kubernetes-dashboard -o jsonpath='{.data.token}' | base64 --decode
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: admin_token
+  ignore_errors: yes
+
+- name: "Verify Dashboard installation"
+  command: kubectl get pods -n kubernetes-dashboard -o wide
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: dashboard_pods
+
+- name: "Display Dashboard status"
+  debug:
+    msg: 
+    - "=== Kubernetes Dashboard Installation Complete ==="
+    - "{{ dashboard_pods.stdout_lines }}"
+    - ""
+    - "🔗 Access: https://dashboard.k8s.local:8443 (after port-forward)"
+    - "👤 Token: {{ admin_token.stdout if admin_token.rc == 0 else 'Will be available shortly' }}"
+    - "💡 Or click 'Skip' for admin access"

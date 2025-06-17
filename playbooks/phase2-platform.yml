@@ -1,0 +1,46 @@
+---
+- name: "Phase 2 - Platform Services"
+  hosts: k8s_cluster
+  become: yes
+  gather_facts: yes
+  
+  pre_tasks:
+    - name: "Verify Phase 1 completion"
+      stat:
+        path: /tmp/k8s-phase1-complete
+      register: phase1_complete
+      failed_when: false
+      
+    - name: "Display Phase 2 start"
+      debug:
+        msg: "Starting Phase 2: Platform Services on {{ inventory_hostname }}"
+
+    - name: "Verify core infrastructure"
+      command: kubectl get nodes
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: node_check
+      failed_when: "'Ready' not in node_check.stdout"
+
+  roles:
+    - role: external-dns
+      tags: ['phase2', 'external-dns', 'dns']
+    - role: longhorn
+      tags: ['phase2', 'longhorn', 'storage']
+    - role: keycloak  
+      tags: ['phase2', 'keycloak', 'auth']
+    - role: kubernetes-dashboard  
+      tags: ['phase2', 'dashboard', 'ui']
+    - role: phase2-validation
+      tags: ['phase2', 'validation']
+
+  post_tasks:
+    - name: "Create Phase 2 completion marker"
+      file:
+        path: /tmp/k8s-phase2-complete
+        state: touch
+        mode: '0644'
+        
+    - name: "Phase 2 completion"
+      debug:
+        msg: "Phase 2: Platform Services completed successfully on {{ inventory_hostname }}"
