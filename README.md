@@ -1,5 +1,17 @@
 # 🚀 Kubernetes Platform Journey Summary
+## 🏆 **Current Infrastructure Status:**
 
+```yaml
+Platform: Kubernetes v1.32.5
+Node: kharrinhao (Ready)
+CNI: Flannel (10.244.0.0/16)
+DNS: CoreDNS (Running)
+Certificates: cert-manager + CA
+Ingress: NGINX NodePort (30080/30443)
+Access: 3 methods available
+Status: Ready for Phase 2
+```
+ 
 ## 🏗️ **Phase 0: Bootstrap Infrastructure**
 
 ### **🎯 Objective:**
@@ -43,19 +55,6 @@ Install networking (CNI), certificate management, and ingress controller.
 - ✅ **TLS**: Certificates auto-generated and working
 - ✅ **Access Methods**: 3 different ways to access services
 
-
-## 🏆 **Current Infrastructure Status:**
-
-```yaml
-Platform: Kubernetes v1.32.5
-Node: kharrinhao (Ready)
-CNI: Flannel (10.244.0.0/16)
-DNS: CoreDNS (Running)
-Certificates: cert-manager + CA
-Ingress: NGINX NodePort (30080/30443)
-Access: 3 methods available
-Status: Ready for Phase 2
-```
 
 ### **🌐 Access Methods:**
 1. **NodePort**: `http://192.168.70.211:30080`
